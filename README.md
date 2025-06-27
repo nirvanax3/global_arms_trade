@@ -20,6 +20,3 @@ This is an interactive **Streamlit dashboard** that analyzes and visualizes glob
 You can deploy this app on [Streamlit Cloud](https://share.streamlit.io/) in just a few clicks.
 
 ---
-
-## 🗂️ File Structure
-
