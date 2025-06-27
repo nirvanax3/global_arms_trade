@@ -20,3 +20,24 @@ This is an interactive **Streamlit dashboard** that analyzes and visualizes glob
 You can deploy this app on [Streamlit Cloud](https://share.streamlit.io/) in just a few clicks.
 
 ---
+
+## 🗂️ File Structure
+
+global_arms_trade/
+│
+├── app.py # Streamlit app source code
+├── data/
+│ └── global_arms_transfer_2000_2023.csv # Cleaned data
+├── requirements.txt # Python dependencies
+├── .gitignore # Ignored files/folders
+└── README.md # Project description
+
+---
+
+## 📦 Installation
+
+### Clone the repo
+
+```bash
+git clone https://github.com/nirvanax3/global_arms_trade.git
+cd global_arms_trade
