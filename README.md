@@ -18,13 +18,3 @@ This is an interactive **Streamlit dashboard** that analyzes and visualizes glob
 ## 🚀 Demo
 
 You can deploy this app on [Streamlit Cloud](https://share.streamlit.io/) in just a few clicks.
-
----
-
-## 📦 Installation
-
-### Clone the repo
-
-```bash
-git clone https://github.com/nirvanax3/global_arms_trade.git
-cd global_arms_trade
