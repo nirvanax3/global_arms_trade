@@ -672,6 +672,56 @@ def get_category_models(_df):
     return train_category_models(_df)
 
 
+# Highlight for the best score: dark green background + white bold text,
+# readable in both light and dark themes.
+BEST_STYLE = "background-color: #2e7d32; color: white; font-weight: bold;"
+
+# A "fragment" reruns ONLY its own function when its widgets are used,
+# instead of re-running the whole app (all 22 charts). This keeps the
+# page from greying out on every prediction.
+# (Named st.experimental_fragment in Streamlit 1.33–1.36, st.fragment from 1.37.)
+fragment = getattr(st, "fragment", None) or st.experimental_fragment
+
+
+@fragment
+def delay_prediction_box(delay):
+    with st.form("delay_form"):
+        f1, f2, f3 = st.columns(3)
+        src_list, tgt_list = delay["sources"], delay["targets"]
+        p_source = f1.selectbox("Exporter", src_list,
+                                index=src_list.index("United States") if "United States" in src_list else 0)
+        p_target = f2.selectbox("Importer", tgt_list,
+                                index=tgt_list.index("India") if "India" in tgt_list else 0)
+        p_category = f3.selectbox("Weapon category", delay["categories"])
+        f4, f5, f6 = st.columns(3)
+        p_qty = f4.number_input("Quantity", min_value=1, max_value=25000, value=10)
+        p_year = f5.number_input("Order year", min_value=2000, max_value=2030, value=2018)
+        p_est = f6.checkbox("Order year is an estimate")
+        submitted = st.form_submit_button("Predict delivery delay")
+
+    if submitted:
+        res = predict_delay(delay["model"], p_source, p_target, p_category, p_qty, p_year, p_est)
+        st.success(
+            f"📦 Predicted delay: **{res['prediction']:.1f} years** "
+            f"→ expected delivery around **{p_year + round(res['prediction'])}**"
+        )
+        st.caption(f"Likely range (10th–90th percentile of the forest's trees): "
+                   f"{res['low']:.1f} – {res['high']:.1f} years")
+        if p_year > DELAY_TRAIN_MAX_YEAR:
+            st.warning(f"The model was trained on orders up to {DELAY_TRAIN_MAX_YEAR}; "
+                       "predictions for later years are an extrapolation.")
+
+
+@fragment
+def category_prediction_box(cat):
+    user_text = st.text_input("Description", value="anti-ship missile")
+    if user_text.strip():
+        top = predict_category(cat["model"], user_text)
+        st.success(f"Predicted category: **{top.loc[0, 'Category']}** "
+                   f"({top.loc[0, 'Probability']:.0%} confidence)")
+        st.bar_chart(top.set_index("Category"))
+
+
 tab_delay, tab_cat = st.tabs(["⏳ A. Delivery Delay Predictor", "🧠 B. Weapon Category Classifier"])
 
 # ---------------------------------------------------------------------
@@ -682,9 +732,9 @@ with tab_delay:
     delay = get_delay_models(df)
 
     st.markdown(f"""
-**Target:** `delivery_date − order_date` in years
-**Features:** exporter, importer, weapon category, log(quantity), order year, order-year-estimated flag
-**Data:** {delay['n_train']:,} training deals / {delay['n_test']:,} test deals (80/20 split), orders 2000–{DELAY_TRAIN_MAX_YEAR}
+- **Target:** `delivery_date − order_date` in years
+- **Features:** exporter, importer, weapon category, log(quantity), order year, order-year-estimated flag
+- **Data:** {delay['n_train']:,} training deals / {delay['n_test']:,} test deals (80/20 split), orders 2000–{DELAY_TRAIN_MAX_YEAR}
 """)
 
     # --- Model comparison ---
@@ -692,8 +742,8 @@ with tab_delay:
     metrics = delay["metrics"]
     st.dataframe(
         metrics.style.format({"MAE (years)": "{:.2f}", "RMSE (years)": "{:.2f}", "R²": "{:.3f}"})
-        .highlight_min(subset=["MAE (years)", "RMSE (years)"], color="#c8e6c9")
-        .highlight_max(subset=["R²"], color="#c8e6c9"),
+        .highlight_min(subset=["MAE (years)", "RMSE (years)"], props=BEST_STYLE)
+        .highlight_max(subset=["R²"], props=BEST_STYLE),
         use_container_width=True, hide_index=True,
     )
 
@@ -736,31 +786,7 @@ with tab_delay:
 
     # --- Interactive prediction ---
     st.markdown("#### 🔮 Try it: predict a new deal")
-    with st.form("delay_form"):
-        f1, f2, f3 = st.columns(3)
-        src_list, tgt_list = delay["sources"], delay["targets"]
-        p_source = f1.selectbox("Exporter", src_list,
-                                index=src_list.index("United States") if "United States" in src_list else 0)
-        p_target = f2.selectbox("Importer", tgt_list,
-                                index=tgt_list.index("India") if "India" in tgt_list else 0)
-        p_category = f3.selectbox("Weapon category", delay["categories"])
-        f4, f5, f6 = st.columns(3)
-        p_qty = f4.number_input("Quantity", min_value=1, max_value=25000, value=10)
-        p_year = f5.number_input("Order year", min_value=2000, max_value=2030, value=2018)
-        p_est = f6.checkbox("Order year is an estimate")
-        submitted = st.form_submit_button("Predict delivery delay")
-
-    if submitted:
-        res = predict_delay(delay["model"], p_source, p_target, p_category, p_qty, p_year, p_est)
-        st.success(
-            f"📦 Predicted delay: **{res['prediction']:.1f} years** "
-            f"→ expected delivery around **{p_year + round(res['prediction'])}**"
-        )
-        st.caption(f"Likely range (10th–90th percentile of the forest's trees): "
-                   f"{res['low']:.1f} – {res['high']:.1f} years")
-        if p_year > DELAY_TRAIN_MAX_YEAR:
-            st.warning(f"The model was trained on orders up to {DELAY_TRAIN_MAX_YEAR}; "
-                       "predictions for later years are an extrapolation.")
+    delay_prediction_box(delay)
 
     with st.expander("⚠️ Design decisions & limitations"):
         st.markdown(f"""
@@ -780,10 +806,10 @@ with tab_cat:
     cat = get_category_models(df)
 
     st.markdown(f"""
-**Input text:** weapon description + designation (e.g. *"portable sam strela-2"*)
-**Output:** one of {cat['confusion'].shape[0]} categories (Aircraft, Missiles, Ships...)
-**Text → numbers:** TF-IDF on single words and word pairs
-**Data:** {cat['n_unique']:,} unique weapon texts → {cat['n_train']:,} train / {cat['n_test']:,} test (stratified 80/20)
+- **Input text:** weapon description + designation (e.g. *"portable sam strela-2"*)
+- **Output:** one of {cat['confusion'].shape[0]} categories (Aircraft, Missiles, Ships...)
+- **Text → numbers:** TF-IDF on single words and word pairs
+- **Data:** {cat['n_unique']:,} unique weapon texts → {cat['n_train']:,} train / {cat['n_test']:,} test (stratified 80/20)
 """)
     st.info("🔍 **Avoiding data leakage:** the raw data repeats the same weapon thousands of times "
             "(only 193 unique descriptions in 10,520 rows). Duplicates were removed **before** splitting, "
@@ -792,7 +818,7 @@ with tab_cat:
     st.markdown("#### 📊 Model Comparison")
     st.dataframe(
         cat["metrics"].style.format({"Accuracy": "{:.1%}", "Macro F1": "{:.3f}"})
-        .highlight_max(subset=["Accuracy", "Macro F1"], color="#c8e6c9"),
+        .highlight_max(subset=["Accuracy", "Macro F1"], props=BEST_STYLE),
         use_container_width=True, hide_index=True,
     )
     with st.expander("ℹ️ What do these metrics mean?"):
@@ -820,12 +846,7 @@ with tab_cat:
                      use_container_width=True)
 
     st.markdown("#### 🔮 Try it: type a weapon description")
-    user_text = st.text_input("Description", value="anti-ship missile")
-    if user_text.strip():
-        top = predict_category(cat["model"], user_text)
-        st.success(f"Predicted category: **{top.loc[0, 'Category']}** "
-                   f"({top.loc[0, 'Probability']:.0%} confidence)")
-        st.bar_chart(top.set_index("Category"))
+    category_prediction_box(cat)
     st.caption("Examples to try: *fighter aircraft*, *main battle tank*, *frigate*, *air search radar*, *turbofan*, *self-propelled gun*")
 
 # =========================
