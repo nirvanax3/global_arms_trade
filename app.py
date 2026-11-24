@@ -620,6 +620,37 @@ if _exp.open:  # lazy: only run this section while it is expanded
         percent = (missing_count / total) * 100
 
         st.success(f"❌ Missing Delivery Dates: **{missing_count:,}** out of **{total:,}** records (**{percent:.2f}%**).")
+
+        # Delivered vs missing delivery date, per order year
+        status_df = qdf.dropna(subset=["order_year"]).assign(
+            status=lambda d: d["delivery_date"].isna().map({True: "Missing delivery date", False: "Delivered"}),
+            order_year=lambda d: d["order_year"].astype(int),
+        )
+        by_year = status_df.groupby(["order_year", "status"]).size().reset_index(name="deals")
+        by_year["share"] = by_year["deals"] / by_year.groupby("order_year")["deals"].transform("sum")
+
+        if has_data(by_year):
+            chart18 = alt.Chart(by_year).mark_bar().encode(
+                x=alt.X("order_year:O", title="Order Year"),
+                y=alt.Y("deals:Q", title="Number of Deals"),
+                color=alt.Color(
+                    "status:N", title=None,
+                    scale=alt.Scale(domain=["Delivered", "Missing delivery date"], range=["#9e9e9e", "#d32f2f"]),
+                    legend=alt.Legend(orient="top"),
+                ),
+                order=alt.Order("status:N", sort="ascending"),
+                tooltip=["order_year", "status", "deals", alt.Tooltip("share:Q", format=".1%", title="Share of year")],
+            ).properties(height=380)
+            st.altair_chart(chart18, width="stretch")
+
+            share_by_year = by_year[by_year["status"] == "Missing delivery date"].set_index("order_year")["share"]
+            if by_year["order_year"].nunique() >= 5 and len(share_by_year) > 0:  # trend only makes sense across several years
+                latest = share_by_year.index.max()
+                st.info(
+                    f"📌 **Observation:** missing delivery dates are concentrated in recent orders "
+                    f"({share_by_year.loc[latest]:.0%} of {latest} orders). These are mostly deals **not delivered yet**, "
+                    f"not data errors. This is why the delay prediction model trains only on orders up to {DELAY_TRAIN_MAX_YEAR}."
+                )
 # =========================
 _exp = st.expander("🛠️ Q19: Which weapon designations had the longest average delivery delay?", key="q19", on_change="rerun")
 if _exp.open:  # lazy: only run this section while it is expanded
