@@ -13,8 +13,9 @@ from ml_models import (
 )
 
 # Page setup
-st.set_page_config(page_title="Arms Trade Dashboard", layout="wide")
-st.title("🔍 Global Arms Trade Analysis (2000–2023)")
+st.set_page_config(page_title="ArmsLens", page_icon="🔍", layout="wide")
+st.title("🔍 ArmsLens")
+st.markdown("#### AI-Powered Analysis and Prediction of Global Arms Trade (2000–2023)")
 
 # =========================
 # 📥 Load & Clean Data

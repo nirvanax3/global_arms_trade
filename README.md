@@ -1,4 +1,4 @@
-# 🌍 Global Arms Trade Dashboard (2000–2023)
+# 🔍 ArmsLens: AI-Powered Analysis and Prediction of Global Arms Trade (2000–2023)
 
 This is an interactive **Streamlit dashboard** that analyzes and visualizes global arms transfers from 2000 to 2023. It is built with **Python**, **Pandas**, **scikit-learn**, **Seaborn**, **Matplotlib**, and **Altair**, and allows users to explore various aspects of arms trading activities between countries.
 
