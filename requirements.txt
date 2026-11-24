@@ -6,3 +6,4 @@ pillow==10.0.1
 plotly
 seaborn
 altair
+scikit-learn==1.5.2

@@ -4,6 +4,14 @@ import altair as alt
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from ml_models import (
+    DELAY_TRAIN_MAX_YEAR,
+    predict_category,
+    predict_delay,
+    train_category_models,
+    train_delay_models,
+)
+
 # Page setup
 st.set_page_config(page_title="Arms Trade Dashboard", layout="wide")
 st.title("🔍 Global Arms Trade Analysis (2000–2023)")
@@ -16,8 +24,10 @@ def load_data():
     df = pd.read_csv("data/global_arms_transfer_2000_2023.csv")
     df.columns = df.columns.str.lower().str.strip().str.replace(" ", "_")
 
+    # "orderYrEst" is a True/False flag: was the order year ESTIMATED (not exactly known)?
     if "orderyrest" in df.columns:
-        df.rename(columns={"orderyrest": "order_year_est"}, inplace=True)
+        df["order_year_estimated"] = df["orderyrest"].astype(str).str.lower().eq("true")
+        df = df.drop(columns=["orderyrest"])
 
     if "order_date" in df.columns:
         df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
@@ -27,10 +37,6 @@ def load_data():
     if "delivery_date" in df.columns:
         df["delivery_date"] = pd.to_datetime(df["delivery_date"], errors="coerce")
         df["delivery_date"] = df["delivery_date"].dt.date
-
-    if "order_year_est" in df.columns:
-        df["order_year_est"] = pd.to_numeric(df["order_year_est"], errors="coerce").astype("Int64")
-        df["order_year"] = df["order_year"].fillna(df["order_year_est"])
 
     df["order_year"] = pd.to_numeric(df["order_year"], errors="coerce").astype("Int64")
 
@@ -180,7 +186,7 @@ with st.expander("💣 Q3: Which weapon categories were ordered the most?"):
     ax.set_title("Weapon Categories by Total Quantity (Lollipop View)")
     st.pyplot(fig)
 # =========================
-# 📈 Q4: Annual Trend of Weapon Orders (Altair)
+# 📈 Q4: Annual Trend of Weapon Orders
 # =========================
 with st.expander("📈 Q4: What is the annual trend of weapon orders over time?"):
     st.markdown("This line plot shows how total weapon quantities have changed year by year.")
@@ -223,7 +229,8 @@ with st.expander("🌐 Q5: Arms transfers between top 5 countries"):
     st.pyplot(fig)
 
 # =========================
-# 🚚 Q6: Years with Highest Transfers (Altair)
+# 🚚 Q6: Years with Highest Transfers 
+
 # =========================
 with st.expander("🚚 Q6: Which years saw the highest number of arms transfers?"):
     st.markdown("This chart shows the number of transfer records per year (not quantity).")
@@ -243,7 +250,7 @@ with st.expander("🚚 Q6: Which years saw the highest number of arms transfers?
     st.pyplot(fig)
 
 # =========================
-# 🧮 Q7: Avg Quantity per Country (Altair)
+# 🧮 Q7: Avg Quantity per Country 
 # =========================
 with st.expander("🧮 Q7: What is the average quantity of arms traded per transaction for each country?"):
     # Get top 5 countries by average quantity
@@ -273,7 +280,7 @@ with st.expander("🧮 Q7: What is the average quantity of arms traded per trans
     st.pyplot(fig)
 
 # =========================
-# 📈 Q8: Which countries had the largest growth in arms exports between 2000 and 2023?
+# 🟢 Q8: Which countries had the highest average arms quantity per trade?
 # =========================
 with st.expander("🟢 Q8: Which countries had the highest average arms quantity per trade?"):
 
@@ -636,6 +643,190 @@ with st.expander("🎻 Q22: How does the quantity of arms traded vary across wea
     ax.set_xlabel("Quantity per Transaction")
     ax.set_ylabel("Weapon Category")
     st.pyplot(fig)
+
+# =====================================================================
+# 🤖 MACHINE LEARNING SECTION
+# =====================================================================
+st.header("🤖 Machine Learning Models")
+st.markdown("""
+Beyond describing the past, two supervised ML models learn patterns from the data to make **predictions**:
+
+| | Model A | Model B |
+|---|---|---|
+| **Task** | Regression | Classification (NLP) |
+| **Predicts** | Delivery delay (years) | Weapon category |
+| **Input** | Exporter, importer, category, quantity, order year | Weapon description text |
+| **Best model** | Random Forest | TF-IDF + Logistic Regression |
+""")
+
+
+# Models are trained once and cached (st.cache_resource), not on every click.
+# The leading underscore tells Streamlit not to hash the DataFrame argument.
+@st.cache_resource(show_spinner="Training delivery delay models...")
+def get_delay_models(_df):
+    return train_delay_models(_df)
+
+
+@st.cache_resource(show_spinner="Training category classifier...")
+def get_category_models(_df):
+    return train_category_models(_df)
+
+
+tab_delay, tab_cat = st.tabs(["⏳ A. Delivery Delay Predictor", "🧠 B. Weapon Category Classifier"])
+
+# ---------------------------------------------------------------------
+# MODEL A: Delivery Delay Predictor
+# ---------------------------------------------------------------------
+with tab_delay:
+    st.subheader("⏳ Predict how long an arms deal will take to deliver")
+    delay = get_delay_models(df)
+
+    st.markdown(f"""
+**Target:** `delivery_date − order_date` in years
+**Features:** exporter, importer, weapon category, log(quantity), order year, order-year-estimated flag
+**Data:** {delay['n_train']:,} training deals / {delay['n_test']:,} test deals (80/20 split), orders 2000–{DELAY_TRAIN_MAX_YEAR}
+""")
+
+    # --- Model comparison ---
+    st.markdown("#### 📊 Model Comparison (on unseen test data)")
+    metrics = delay["metrics"]
+    st.dataframe(
+        metrics.style.format({"MAE (years)": "{:.2f}", "RMSE (years)": "{:.2f}", "R²": "{:.3f}"})
+        .highlight_min(subset=["MAE (years)", "RMSE (years)"], color="#c8e6c9")
+        .highlight_max(subset=["R²"], color="#c8e6c9"),
+        use_container_width=True, hide_index=True,
+    )
+
+    base_mae = metrics.loc[metrics["Model"].str.startswith("Baseline"), "MAE (years)"].iloc[0]
+    rf_mae = metrics.loc[metrics["Model"] == "Random Forest", "MAE (years)"].iloc[0]
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Random Forest MAE", f"{rf_mae:.2f} years")
+    c2.metric("Baseline MAE", f"{base_mae:.2f} years")
+    c3.metric("Error reduction vs baseline", f"{(1 - rf_mae / base_mae) * 100:.0f}%")
+
+    with st.expander("ℹ️ What do these metrics mean?"):
+        st.markdown("""
+- **MAE (Mean Absolute Error):** on average, how many years the prediction is off by. Lower is better.
+- **RMSE (Root Mean Squared Error):** like MAE but punishes big mistakes more. Lower is better.
+- **R²:** share of the variation in delay that the model explains (1 = perfect, 0 = no better than the average).
+- **Baseline:** a "dumb" model that always predicts the average delay. A real model must beat it.
+""")
+
+    # --- Charts ---
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown("#### 🎯 Predicted vs Actual")
+        fig, ax = plt.subplots(figsize=(5, 4.5))
+        ax.scatter(delay["y_test"], delay["y_pred"], alpha=0.25, s=12, color="steelblue")
+        lim = max(delay["y_test"].max(), delay["y_pred"].max())
+        ax.plot([0, lim], [0, lim], "r--", linewidth=1, label="Perfect prediction")
+        ax.set_xlabel("Actual delay (years)")
+        ax.set_ylabel("Predicted delay (years)")
+        ax.legend()
+        st.pyplot(fig)
+
+    with col_b:
+        st.markdown("#### 🔑 Feature Importance")
+        imp = delay["importance"]
+        fig, ax = plt.subplots(figsize=(5, 4.5))
+        sns.barplot(data=imp, x="Importance", y="Feature", color="teal", ax=ax)
+        ax.set_xlabel("Increase in error when feature is shuffled (years)")
+        ax.set_ylabel("")
+        st.pyplot(fig)
+
+    # --- Interactive prediction ---
+    st.markdown("#### 🔮 Try it: predict a new deal")
+    with st.form("delay_form"):
+        f1, f2, f3 = st.columns(3)
+        src_list, tgt_list = delay["sources"], delay["targets"]
+        p_source = f1.selectbox("Exporter", src_list,
+                                index=src_list.index("United States") if "United States" in src_list else 0)
+        p_target = f2.selectbox("Importer", tgt_list,
+                                index=tgt_list.index("India") if "India" in tgt_list else 0)
+        p_category = f3.selectbox("Weapon category", delay["categories"])
+        f4, f5, f6 = st.columns(3)
+        p_qty = f4.number_input("Quantity", min_value=1, max_value=25000, value=10)
+        p_year = f5.number_input("Order year", min_value=2000, max_value=2030, value=2018)
+        p_est = f6.checkbox("Order year is an estimate")
+        submitted = st.form_submit_button("Predict delivery delay")
+
+    if submitted:
+        res = predict_delay(delay["model"], p_source, p_target, p_category, p_qty, p_year, p_est)
+        st.success(
+            f"📦 Predicted delay: **{res['prediction']:.1f} years** "
+            f"→ expected delivery around **{p_year + round(res['prediction'])}**"
+        )
+        st.caption(f"Likely range (10th–90th percentile of the forest's trees): "
+                   f"{res['low']:.1f} – {res['high']:.1f} years")
+        if p_year > DELAY_TRAIN_MAX_YEAR:
+            st.warning(f"The model was trained on orders up to {DELAY_TRAIN_MAX_YEAR}; "
+                       "predictions for later years are an extrapolation.")
+
+    with st.expander("⚠️ Design decisions & limitations"):
+        st.markdown(f"""
+- **Why only orders up to {DELAY_TRAIN_MAX_YEAR}?** The data ends in 2023. A deal ordered in 2022 that takes 5 years is not
+  delivered yet, so it has no delivery date. Recent orders would therefore only show *short* delays and teach the model a
+  false pattern ("recent = fast"). This is called **right-censoring**. Training on older orders gives each deal at least ~5 years to be delivered.
+- **Missing delivery dates (~16%)** are excluded: the true delay is unknown.
+- **R² is modest**: real delays also depend on politics, sanctions, production queues and contract terms, which are not in the data.
+- Countries with fewer than 10 deals are grouped as "infrequent" so the model does not overfit to rare countries.
+""")
+
+# ---------------------------------------------------------------------
+# MODEL B: Weapon Category Classifier
+# ---------------------------------------------------------------------
+with tab_cat:
+    st.subheader("🧠 Classify a weapon's category from its description (NLP)")
+    cat = get_category_models(df)
+
+    st.markdown(f"""
+**Input text:** weapon description + designation (e.g. *"portable sam strela-2"*)
+**Output:** one of {cat['confusion'].shape[0]} categories (Aircraft, Missiles, Ships...)
+**Text → numbers:** TF-IDF on single words and word pairs
+**Data:** {cat['n_unique']:,} unique weapon texts → {cat['n_train']:,} train / {cat['n_test']:,} test (stratified 80/20)
+""")
+    st.info("🔍 **Avoiding data leakage:** the raw data repeats the same weapon thousands of times "
+            "(only 193 unique descriptions in 10,520 rows). Duplicates were removed **before** splitting, "
+            "so the model is tested on texts it has never seen. Otherwise it would memorise them and show a fake 100% accuracy.")
+
+    st.markdown("#### 📊 Model Comparison")
+    st.dataframe(
+        cat["metrics"].style.format({"Accuracy": "{:.1%}", "Macro F1": "{:.3f}"})
+        .highlight_max(subset=["Accuracy", "Macro F1"], color="#c8e6c9"),
+        use_container_width=True, hide_index=True,
+    )
+    with st.expander("ℹ️ What do these metrics mean?"):
+        st.markdown("""
+- **Accuracy:** % of test weapons classified correctly.
+- **Macro F1:** average F1-score across all categories, treating each category equally. Important because
+  the classes are imbalanced (Aircraft has thousands of rows, Satellites only a handful).
+- **Precision:** of everything predicted as "Missiles", how many really were. **Recall:** of all real missiles, how many were found.
+""")
+
+    col_c, col_d = st.columns([3, 2])
+    with col_c:
+        st.markdown("#### 🧩 Confusion Matrix (Logistic Regression)")
+        fig, ax = plt.subplots(figsize=(7, 5.5))
+        sns.heatmap(cat["confusion"], annot=True, fmt="d", cmap="Blues", cbar=False, ax=ax)
+        ax.set_xlabel("Predicted category")
+        ax.set_ylabel("Actual category")
+        plt.xticks(rotation=45, ha="right")
+        st.pyplot(fig)
+    with col_d:
+        st.markdown("#### 📋 Per-Category Report")
+        report = cat["report"].drop(index=["accuracy"], errors="ignore")
+        st.dataframe(report.style.format({"precision": "{:.2f}", "recall": "{:.2f}",
+                                          "f1-score": "{:.2f}", "support": "{:.0f}"}),
+                     use_container_width=True)
+
+    st.markdown("#### 🔮 Try it: type a weapon description")
+    user_text = st.text_input("Description", value="anti-ship missile")
+    if user_text.strip():
+        top = predict_category(cat["model"], user_text)
+        st.success(f"Predicted category: **{top.loc[0, 'Category']}** "
+                   f"({top.loc[0, 'Probability']:.0%} confidence)")
+        st.bar_chart(top.set_index("Category"))
+    st.caption("Examples to try: *fighter aircraft*, *main battle tank*, *frigate*, *air search radar*, *turbofan*, *self-propelled gun*")
 
 # =========================
 # 🏁 End of Dashboard
